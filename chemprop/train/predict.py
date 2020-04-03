@@ -59,6 +59,7 @@ def save_predictions(save_dir: str,
                      train_preds: List[List[float]],
                      val_preds: List[List[float]],
                      test_preds: List[List[float]],
+                     task_names: List[str],
                      scaler: StandardScaler = None) -> None:
     """
     Saves predictions to csv file for entire model.
@@ -67,7 +68,7 @@ def save_predictions(save_dir: str,
     """
     with open(os.path.join(save_dir, 'preds.csv'), 'w') as f:
         writer = csv.writer(f)
-        header = ['drugSMILE', 'cmpdSMILE', 'split', 'truth', 'pred']
+        header = ['SMILE1', 'SMILE2', 'SPLIT'] + task_names + ['PRED_' + task for task in task_names]
         writer.writerow(header)
 
         splits = ['train', 'val', 'test']
@@ -84,5 +85,5 @@ def save_predictions(save_dir: str,
 
             preds = predSplits[k]
             for i in range(len(smiles)):
-                row = [smiles[i][0], smiles[i][1], split, targets[i][0], preds[i][0]]
+                row = [smiles[i][0], smiles[i][1], split] + targets[i] + preds[i]
                 writer.writerow(row)

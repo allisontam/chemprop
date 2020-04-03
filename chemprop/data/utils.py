@@ -16,18 +16,18 @@ from .scaffold import log_scaffold_stats, scaffold_split
 from chemprop.features import load_features
 
 
-def get_task_names(path: str, use_compound_names: bool = False) -> List[str]:
+def get_task_names(path: str, data_format: str = None) -> List[str]:
     """
     Gets the task names from a data CSV file.
 
     :param path: Path to a CSV file.
-    :param use_compound_names: Whether file has compound names in addition to smiles strings.
+    :param data_format: Provides extra info on header meanings.
     :return: A list of task names.
     """
-    index = 3 if use_compound_names else 2
-    task_names = get_header(path)[index:]
-
-    return task_names
+    if data_format is None:
+        return get_header(path)[2:]
+    else:
+        return [task for i, task in enumerate(get_header(path)) if data_format[i] == 'P']
 
 
 def get_header(path: str) -> List[str]:
@@ -129,11 +129,11 @@ def get_data(path: str,
 
     # Load data
     with open(path) as f:
-        reader = csv.reader(f)
-        next(reader)  # skip header
+        f.readline()  # skip header
 
         lines = []  # drug_smile, cmpd_smile, targets, context
-        for line in reader:
+        for line in f.readlines():
+            line = line.strip().split(',')
             drug_smiles = line[0]
             cmpd_smiles = line[1]
             targets, context = [], []
@@ -142,17 +142,14 @@ def get_data(path: str,
                 continue
 
             for i in range(2, len(line)):
-                if line[i] == '':
-                    continue
-                elif args.data_format is None or args.data_format[i] == 'P':
-                    targets.append( float(line[i]) )
+                if args.data_format is None or args.data_format[i] == 'P':
+                    targets.append( float(line[i]) if line[i] != '' else None )
                 else:
-                    context.append( float(line[i]) )
+                    context.append( float(line[i]) if line[i] != '' else None )
             lines.append( (drug_smiles, cmpd_smiles, targets, context) )
 
             if len(lines) >= max_data_size:
                 break
-
 
         data = MolPairDataset([
             MolPairDatapoint(

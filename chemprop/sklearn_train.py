@@ -12,7 +12,7 @@ from sklearn.svm import SVC, SVR
 from tqdm import trange, tqdm
 
 from chemprop.data import MolPairDataset
-from chemprop.data.utils import get_data, split_data, flip_data
+from chemprop.data.utils import get_data, get_task_names, flip_data, split_data
 from chemprop.features import get_features_generator
 from chemprop.train.evaluate import evaluate_predictions
 from chemprop.train.predict import save_predictions
@@ -107,7 +107,7 @@ def multi_task_sklearn(model,
             logger=logger
         )
         info(f'Val {args.metric} = {np.nanmean(val_scores)}')
-        save_predictions(args.save_dir, None, val_data, test_data, None, val_preds, test_preds)
+        save_predictions(args.save_dir, None, val_data, test_data, None, val_preds, test_preds, args.task_names)
 
     scores = evaluate_predictions(
         preds=test_preds,
@@ -195,7 +195,9 @@ def run_sklearn(args: Namespace, logger: Logger = None) -> List[float]:
 
 
 def cross_validate_sklearn(args: Namespace, logger: Logger = None) -> Tuple[float, float]:
+    # TODO: Multi-task might not work with RF.
     info = logger.info if logger is not None else print
+    args.task_names = get_task_names(args.data_path, args.data_format)
     init_seed = args.seed
     save_dir = args.save_dir
 

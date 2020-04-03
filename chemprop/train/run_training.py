@@ -45,7 +45,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
 
     # Get data
     debug('Loading data')
-    args.task_names = get_task_names(args.data_path)
+    args.task_names = get_task_names(args.data_path, args.data_format)
     data = get_data(path=args.data_path, args=args, logger=logger)
     args.num_tasks = data.num_tasks()
     args.features_size = data.features_size()
@@ -243,7 +243,8 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         if args.save_preds:
             val_preds = predict(model=model, data=val_data, batch_size=args.batch_size, scaler=scaler)
             train_preds = predict(model=model, data=train_data, batch_size=args.batch_size, scaler=scaler)
-            save_predictions(save_dir, train_data, val_data, test_data, train_preds, val_preds, test_preds, scaler)
+            save_predictions(save_dir, train_data, val_data, test_data, \
+                    train_preds, val_preds, test_preds, args.task_names, scaler)
 
         test_scores = evaluate_predictions(
             preds=test_preds,
