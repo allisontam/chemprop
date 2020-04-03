@@ -31,8 +31,7 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
-        self.drug_encoder = MPN(args) if not args.cmpd_only else None
-        self.cmpd_encoder = MPN(args) if not args.drug_only else None
+        self.encoder = MPN(args)
 
     def create_ffn(self, args: Namespace):
         """
@@ -62,7 +61,7 @@ class MoleculeModel(nn.Module):
         if args.ffn_num_layers == 1:
             ffn = [
                 dropout,
-                nn.Linear(first_linear_dim, args.output_size)
+                nn.Linear(first_linear_dim, 1)
             ]
         else:
             ffn = [
@@ -78,11 +77,36 @@ class MoleculeModel(nn.Module):
             ffn.extend([
                 activation,
                 dropout,
-                nn.Linear(args.ffn_hidden_size, args.output_size),
+                nn.Linear(args.ffn_hidden_size, 1),
             ])
 
         # Create FFN model
-        self.ffn = nn.Sequential(*ffn)
+        self.single = nn.Sequential(*ffn)
+
+        # Create FFN layers
+        if args.ffn_num_layers == 1:
+            ffn = [
+                dropout,
+                nn.Linear(args.hidden_size, 1)
+            ]
+        else:
+            ffn = [
+                dropout,
+                nn.Linear(args.hidden_size, args.ffn_hidden_size)
+            ]
+            for _ in range(args.ffn_num_layers - 2):
+                ffn.extend([
+                    activation,
+                    dropout,
+                    nn.Linear(args.ffn_hidden_size, args.ffn_hidden_size),
+                ])
+            ffn.extend([
+                activation,
+                dropout,
+                nn.Linear(args.ffn_hidden_size, 1),
+            ])
+        self.combo = nn.Sequential(*ffn)
+
 
     def forward(self, *input):
         """
@@ -93,34 +117,24 @@ class MoleculeModel(nn.Module):
         """
         smiles, feats = input  # TODO: in future, move drug/cmpd feats out of MPN
 
-        newInput = []
-        if self.drug_encoder:
-            learned_drug = self.drug_encoder([x[0] for x in smiles], [x[0] for x in feats])
-            newInput.append(learned_drug)
-        if self.cmpd_encoder:
-            learned_cmpd = self.cmpd_encoder([x[1] for x in smiles], [x[1] for x in feats])
-            newInput.append(learned_cmpd)
+        learned_drug = self.encoder([x[0] for x in smiles], [x[0] for x in feats])
+        drugOut = self.single(learned_drug)
+        learned_cmpd = self.encoder([x[1] for x in smiles], [x[1] for x in feats])
+        cmpdOut = self.single(learned_cmpd)
 
-        assert len(newInput) != 0
-
-        if len(newInput) > 1:
-            if self.ops == 'plus':
-                newInput = newInput[0] + newInput[1]
-            elif self.ops == 'minus':
-                newInput = newInput[0] - newInput[1]
-            else:
-                newInput = torch.cat(newInput, dim=1)
+        if self.ops == 'plus':
+            newInput = learned_drug + learned_cmpd
+        elif self.ops == 'minus':
+            newInput = learned_drug - learned_cmpd
         else:
-            newInput = newInput[0]
-
-        # Incorporate pair features when available
-        if feats[0][2] is not None:
             features_batch = torch.from_numpy(np.stack([x[2] for x in feats])).float()
             if self.use_cuda:
                 features_batch = features_batch.cuda()
             newInput = torch.cat((newInput, features_batch), dim=1)
 
-        output = self.ffn(newInput)
+        comboOut = self.combo(newInput)
+        output = torch.cat((comboOut, drugOut, cmpdOut), dim=1)
+
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if not self.training:
             output = self.activation(output)

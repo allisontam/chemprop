@@ -122,7 +122,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         drug_scaler, cmpd_scaler = None, None
 
     args.train_data_size = len(train_data)
-    
+
     debug(f'Total size = {len(data):,} | '
           f'train size = {len(train_data):,} | val size = {len(val_data):,} | test size = {len(test_data):,}')
 
@@ -223,6 +223,9 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
                 for task_name, val_score in zip(args.task_names, val_scores):
                     debug(f'Validation {task_name} {args.metric} = {val_score:.6f}')
                     writer.add_scalar(f'validation_{task_name}_{args.metric}', val_score, n_iter)
+
+            # Evaluate on only the COMBO score
+            avg_val_score = val_scores[0]
 
             # Save model checkpoint if improved validation score
             if args.minimize_score and avg_val_score < best_score or \
