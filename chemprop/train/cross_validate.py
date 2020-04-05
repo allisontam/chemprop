@@ -48,9 +48,12 @@ def cross_validate(args: Namespace, logger: Logger = None) -> Tuple[float, float
     mean_score, std_score = np.nanmean(avg_scores), np.nanstd(avg_scores)
     info(f'Overall test {args.metric} = {mean_score:.6f} +/- {std_score:.6f}')
 
+    ret_mean, ret_std = mean_score, std_score
     if args.show_individual_scores:
         for task_num, task_name in enumerate(task_names):
             info(f'Overall test {task_name} {args.metric} = '
                  f'{np.nanmean(all_scores[:, task_num]):.6f} +/- {np.nanstd(all_scores[:, task_num]):.6f}')
+            if task_name == 'COMBO':
+                ret_mean, ret_std = np.nanmean(all_scores[:, task_num]), np.nanstd(all_scores[:, task_num])
 
-    return mean_score, std_score
+    return ret_mean, ret_std
