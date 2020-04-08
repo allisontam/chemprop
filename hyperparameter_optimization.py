@@ -41,6 +41,8 @@ def grid_search(args: Namespace):
         # Convert hyperparams from float to int when necessary
         for key in INT_KEYS:
             hyperparams[key] = int(hyperparams[key])
+            if key == 'hidden_size':
+                hyperparams['ffn_hidden_size'] = int(hyperparams[key])
 
         # Update args with hyperparams
         hyper_args = deepcopy(args)
