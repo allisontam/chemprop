@@ -1,12 +1,15 @@
 import logging
-from typing import Callable, List, Union
+from typing import Callable, Dict, List, Union
 
 import torch
 import torch.nn as nn
 
 from .loss_funcs import ContrastiveLoss
 from .predict import predict
+from .train import train
 from chemprop.data import  convert2contrast, MolPairDataset, StandardScaler
+from chemprop.utils import load_checkpoint
+# from chemprop.data.utils import task_iterator
 
 
 def val_loss(model: nn.Module,
@@ -25,6 +28,7 @@ def val_loss(model: nn.Module,
     :param scaler: Scaler for data.
     :return: loss on validation set.
     """
+    raise NotImplementedError
     model.train()
     data.shuffle()
     if type(loss_func) == ContrastiveLoss:
@@ -127,12 +131,14 @@ def evaluate_predictions(preds: List[List[float]],
 
 
 def evaluate(model: nn.Module,
-             data: MolPairDataset,
+             train_data: Dict[str, MolPairDataset],
+             data: Dict[str, MolPairDataset],
              loss_func: Callable,
              num_tasks: int,
              metric_func: Callable,
              batch_size: int,
              dataset_type: str,
+             args,
              scaler: StandardScaler = None,
              logger: logging.Logger = None) -> List[float]:
     """
@@ -149,16 +155,28 @@ def evaluate(model: nn.Module,
     :param logger: Logger.
     :return: A list with the score for each task based on `metric_func`.
     """
-    loss = val_loss(model, data, loss_func, batch_size, dataset_type, scaler)
+    # loss = val_loss(model, data, loss_func, batch_size, dataset_type, scaler)
+    preds, targets = [], []
+    for task_name in data:
+        inner_model = load_checkpoint(model, current_args=args, cuda=args.cuda, quiet=True)
+        inner_optim = torch.optim.SGD(inner_model.parameters(), lr=0.01)  # Hyperparam
 
-    preds = predict(
-        model=model,
-        data=data,
-        batch_size=batch_size,
-        scaler=scaler
-    )
+        train(model=inner_model,
+            data=train_data[task_name],
+            loss_func=loss_func,
+            args=args,
+            optimizer=inner_optim,
+            n_grad_step=5)
 
-    targets = data.targets()
+        task_preds = predict(
+            model=model,
+            data=data[task_name],
+            batch_size=batch_size,
+            scaler=scaler
+        )
+
+        preds.extend(task_preds)
+        targets.extend(data[task_name].targets())
 
     results = evaluate_predictions(
         preds=preds,
@@ -169,4 +187,4 @@ def evaluate(model: nn.Module,
         logger=logger
     )
 
-    return results, loss
+    return results, 0

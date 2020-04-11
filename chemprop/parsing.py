@@ -158,11 +158,11 @@ def add_train_args(parser: ArgumentParser):
                         help='Number of epochs during which learning rate increases linearly from'
                              'init_lr to max_lr. Afterwards, learning rate decreases exponentially'
                              'from max_lr to final_lr.')
-    parser.add_argument('--init_lr', type=float, default=1e-4,
+    parser.add_argument('--init_lr', type=float, default=1e-2,
                         help='Initial learning rate')
-    parser.add_argument('--max_lr', type=float, default=1e-3,
+    parser.add_argument('--max_lr', type=float, default=1e-1,
                         help='Maximum learning rate')
-    parser.add_argument('--final_lr', type=float, default=1e-4,
+    parser.add_argument('--final_lr', type=float, default=1e-2,
                         help='Final learning rate')
     parser.add_argument('--grad_clip', type=float, default=0, help='Clips grad norm if set')
     parser.add_argument('--no_features_scaling', action='store_true', default=False,

@@ -4,7 +4,7 @@ from collections import defaultdict
 from logging import Logger
 import pickle
 import random
-from typing import Generator, List, Set, Tuple
+from typing import Dict, List, Set, Tuple
 import os
 
 from rdkit import Chem
@@ -203,15 +203,18 @@ def get_data_from_smiles(smiles: List[str], skip_invalid_smiles: bool = True, lo
     return data
 
 
-def task_iterator(data: MolPairDataset) -> Generator[MolPairDataset, None, None]:
+def task_iterator(data: MolPairDataset) -> Dict[str, MolPairDataset]: #Generator[MolPairDataset, None, None]:
     tasks = defaultdict(list)
     for entry in data:
         tasks[entry.drug_smiles].append(entry)
+    for task in tasks:
+        tasks[task] = MolPairDataset(tasks[task])
+    return tasks
 
-    order = list(tasks.keys())
-    random.shuffle(order)
-    for task in order:
-        yield MolPairDataset(tasks[task])
+    # order = list(tasks.keys())
+    # random.shuffle(order)
+    # for task in order:
+        # yield 
 
 
 def split_data(data: MolPairDataset,

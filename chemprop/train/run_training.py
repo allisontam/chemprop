@@ -10,6 +10,7 @@ from tensorboardX import SummaryWriter
 import torch
 from tqdm import trange, tqdm
 import pickle
+import random
 from torch.optim.lr_scheduler import ExponentialLR
 
 from .evaluate import evaluate, evaluate_predictions
@@ -122,7 +123,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         drug_scaler, cmpd_scaler = None, None
 
     args.train_data_size = len(train_data)
-    
+
     debug(f'Total size = {len(data):,} | '
           f'train size = {len(train_data):,} | val size = {len(val_data):,} | test size = {len(test_data):,}')
 
@@ -139,6 +140,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
     # Get loss and metric functions
     loss_func = get_loss_func(args)
     metric_func = get_metric_func(metric=args.metric)
+    train_tasks = task_iterator(train_data)
 
     # Set up test set evaluation
     test_smiles, test_targets = test_data.smiles(), test_data.targets()
@@ -202,17 +204,19 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         # testparam = 'drug_encoder.encoder.W_i.weight'
         best_score = float('inf') if args.minimize_score else -float('inf')
         best_epoch, n_iter = 0, 0
+        task_order = list(train_tasks.keys())
         for epoch in trange(args.epochs):
             debug(f'Epoch {epoch}')
             model.zero_grad()
+            random.shuffle(task_order)
 
-            for i, task in tqdm(enumerate(task_iterator(train_data)), total=16):  # inner training loop
+            for i, task in tqdm(enumerate(task_order), total=len(train_tasks)):  # inner training loop
                 inner_model = load_checkpoint(model, current_args=args, cuda=args.cuda, quiet=True)
                 inner_optim = torch.optim.SGD(inner_model.parameters(), lr=0.01)  # Hyperparam
 
                 n_iter += train(
                     model=inner_model,
-                    data=task,
+                    data=train_tasks[task],
                     loss_func=loss_func,
                     args=args,
                     optimizer=inner_optim,
@@ -235,12 +239,14 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
                 scheduler.step()
             val_scores, val_loss = evaluate(
                 model=model,
-                data=val_data,
+                train_data=train_tasks,
+                data=task_iterator(val_data),
                 loss_func=loss_func,
                 num_tasks=args.num_tasks,
                 metric_func=metric_func,
                 batch_size=args.batch_size,
                 dataset_type=args.dataset_type,
+                args=args,
                 scaler=scaler,
                 logger=logger
             )
@@ -269,6 +275,21 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         info(f'Model {model_idx} best validation {args.metric} = {best_score:.6f} on epoch {best_epoch}')
         model = load_checkpoint(os.path.join(save_dir, 'model.pt'), cuda=args.cuda, logger=logger)
 
+        test_scores, _ = evaluate(
+            model=model,
+            train_data=train_tasks,
+            data=task_iterator(test_data),
+            loss_func=loss_func,
+            num_tasks=args.num_tasks,
+            metric_func=metric_func,
+            batch_size=args.batch_size,
+            dataset_type=args.dataset_type,
+            args=args,
+            scaler=scaler,
+            logger=logger
+        )
+
+        """
         test_preds = predict(
             model=model,
             data=test_data,
@@ -289,6 +310,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             dataset_type=args.dataset_type,
             logger=logger
         )
+        """
 
         if len(test_preds) != 0:
             sum_test_preds += np.array(test_preds)
