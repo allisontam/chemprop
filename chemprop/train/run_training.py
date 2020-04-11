@@ -8,7 +8,7 @@ from typing import List
 import numpy as np
 from tensorboardX import SummaryWriter
 import torch
-from tqdm import trange
+from tqdm import trange, tqdm
 import pickle
 from torch.optim.lr_scheduler import ExponentialLR
 
@@ -16,7 +16,7 @@ from .evaluate import evaluate, evaluate_predictions
 from .predict import predict, save_predictions
 from .train import train
 from chemprop.data import StandardScaler
-from chemprop.data.utils import flip_data, get_class_sizes, get_data, get_task_names, split_data, split_loocv
+from chemprop.data.utils import flip_data, get_class_sizes, get_data, get_task_names, split_data, split_loocv, task_iterator
 from chemprop.models import build_model
 from chemprop.nn_utils import param_count
 from chemprop.utils import build_optimizer, build_lr_scheduler, get_loss_func, get_metric_func, load_checkpoint,\
@@ -175,27 +175,62 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
 
         # Optimizers
         optimizer = build_optimizer(model, args)
+        model_param = dict(model.named_parameters())
 
         # Learning rate schedulers
         scheduler = build_lr_scheduler(optimizer, args)
+        # lrs = scheduler.get_lr()
+        # lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
+            # for i, lr in enumerate(lrs):
+                # writer.add_scalar(f'learning_rate_{i}', lr, n_iter)
+
+        # Log and/or add to tensorboard
+        # if (n_iter // args.batch_size) % args.log_frequency == 0:
+            # pnorm = compute_pnorm(model)
+            # gnorm = compute_gnorm(model)
+            # loss_avg = loss_sum / iter_count
+            # loss_sum, iter_count = 0, 0
+
+            # debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}')
+
+            # if writer is not None:
+                # writer.add_scalar('train_loss', loss_avg, n_iter)
+                # writer.add_scalar('param_norm', pnorm, n_iter)
+                # writer.add_scalar('gradient_norm', gnorm, n_iter)
 
         # Run training
+        # testparam = 'drug_encoder.encoder.W_i.weight'
         best_score = float('inf') if args.minimize_score else -float('inf')
         best_epoch, n_iter = 0, 0
         for epoch in trange(args.epochs):
             debug(f'Epoch {epoch}')
+            model.zero_grad()
 
-            n_iter = train(
-                model=model,
-                data=train_data,
-                loss_func=loss_func,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                args=args,
-                n_iter=n_iter,
-                logger=logger,
-                writer=writer
-            )
+            for i, task in tqdm(enumerate(task_iterator(train_data)), total=16):  # inner training loop
+                inner_model = load_checkpoint(model, current_args=args, cuda=args.cuda, quiet=True)
+                inner_optim = torch.optim.SGD(inner_model.parameters(), lr=0.01)  # Hyperparam
+
+                n_iter += train(
+                    model=inner_model,
+                    data=task,
+                    loss_func=loss_func,
+                    args=args,
+                    optimizer=inner_optim,
+                    n_grad_step=5,
+                )
+
+                for name, param in inner_model.named_parameters():  # accumulate grad with \sim\phi
+                    if not param.requires_grad:
+                        continue
+                    gradient = model_param[name].data - param.data
+                    if model_param[name].grad is None:
+                        model_param[name].grad = torch.autograd.Variable(torch.zeros(gradient.size()))
+                    model_param[name].grad.data.add_(gradient/args.batch_size)
+
+                if (i+1)%args.batch_size == 0:  # actually apply gradient
+                    optimizer.step()
+                    optimizer.zero_grad()
+
             if isinstance(scheduler, ExponentialLR):
                 scheduler.step()
             val_scores, val_loss = evaluate(

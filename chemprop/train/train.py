@@ -2,11 +2,10 @@ from argparse import Namespace
 import logging
 from typing import Callable, List
 
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
 import torch
 import torch.nn as nn
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import _LRScheduler
 from tqdm import trange
 
 from chemprop.data import MolPairDataset, convert2contrast
@@ -17,11 +16,8 @@ def train(model: nn.Module,
           data: MolPairDataset,
           loss_func: Callable,
           optimizer: Optimizer,
-          scheduler: _LRScheduler,
           args: Namespace,
-          n_iter: int = 0,
-          logger: logging.Logger = None,
-          writer: SummaryWriter = None) -> int:
+          n_grad_step: int = 3) -> int:
     """
     Trains a model for an epoch.
 
@@ -29,32 +25,22 @@ def train(model: nn.Module,
     :param data: A MolPairDataset (or a list of MolPairDatasets if using moe).
     :param loss_func: Loss function.
     :param optimizer: An Optimizer.
-    :param scheduler: A learning rate scheduler.
     :param args: Arguments.
-    :param n_iter: The number of iterations (training examples) trained on so far.
-    :param logger: A logger for printing intermediate results.
-    :param writer: A tensorboardX SummaryWriter.
     :return: The total number of iterations (training examples) trained on so far.
     """
-    debug = logger.debug if logger is not None else print
-
     model.train()
 
     data.shuffle()  # Very important this is done before conversion to maintain randomness in contrastive dataset.
 
-    loss_sum, iter_count = 0, 0
+    loss_sum, n_iter = 0, 0
 
     if args.loss_func == 'contrastive':
         data = convert2contrast(data)
-    num_iters = len(data) // args.batch_size * args.batch_size  # don't use the last batch if it's small, for stability
+    batch_size = len(data) // n_grad_step
+    num_iters = n_grad_step * batch_size  # don't use the last batch if it's small, for stability
 
-    iter_size = args.batch_size
-
-    for i in trange(0, num_iters, iter_size):
-        # Prepare batch
-        if i + args.batch_size > len(data):
-            break
-        mol_batch = MolPairDataset(data[i:i + args.batch_size])
+    for i in range(0, num_iters, batch_size):
+        mol_batch = MolPairDataset(data[i:i + batch_size])
         smiles_batch, features_batch, target_batch = mol_batch.smiles(), mol_batch.features(), mol_batch.targets()
         batch = smiles_batch
         targets = torch.Tensor([[0 if x is None else x for x in tb] for tb in target_batch])
@@ -86,34 +72,12 @@ def train(model: nn.Module,
         loss = loss.sum() / mask.sum()
 
         loss_sum += loss.item()
-        iter_count += 1
 
         loss.backward()
         if args.grad_clip:
             nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
         optimizer.step()
 
-        if isinstance(scheduler, NoamLR):
-            scheduler.step()
-
         n_iter += args.batch_size
-
-        # Log and/or add to tensorboard
-        if (n_iter // args.batch_size) % args.log_frequency == 0:
-            lrs = scheduler.get_lr()
-            pnorm = compute_pnorm(model)
-            gnorm = compute_gnorm(model)
-            loss_avg = loss_sum / iter_count
-            loss_sum, iter_count = 0, 0
-
-            lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
-            debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}')
-
-            if writer is not None:
-                writer.add_scalar('train_loss', loss_avg, n_iter)
-                writer.add_scalar('param_norm', pnorm, n_iter)
-                writer.add_scalar('gradient_norm', gnorm, n_iter)
-                for i, lr in enumerate(lrs):
-                    writer.add_scalar(f'learning_rate_{i}', lr, n_iter)
 
     return n_iter

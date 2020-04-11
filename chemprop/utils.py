@@ -68,10 +68,11 @@ def save_checkpoint(path: str,
     torch.save(state, path)
 
 
-def load_checkpoint(path: str,
+def load_checkpoint(path: Union[str, MoleculeModel],
                     current_args: Namespace = None,
                     cuda: bool = None,
-                    logger: logging.Logger = None) -> MoleculeModel:
+                    logger: logging.Logger = None,
+                    quiet: bool = False) -> MoleculeModel:
     """
     Loads a model checkpoint.
 
@@ -79,13 +80,17 @@ def load_checkpoint(path: str,
     :param current_args: The current arguments. Replaces the arguments loaded from the checkpoint if provided.
     :param cuda: Whether to move model to cuda.
     :param logger: A logger.
+    :param quiet: Whether to log.
     :return: The loaded MoleculeModel.
     """
     debug = logger.debug if logger is not None else print
 
-    # Load model and args
-    state = torch.load(path, map_location=lambda storage, loc: storage)
-    args, loaded_state_dict = state['args'], state['state_dict']
+    if isinstance(path, str):
+        # Load model and args
+        state = torch.load(path, map_location=lambda storage, loc: storage)
+        args, loaded_state_dict = state['args'], state['state_dict']
+    else:  # just duplicating the model
+        loaded_state_dict = path.state_dict()
 
     if current_args is not None:
         args = current_args
@@ -109,7 +114,8 @@ def load_checkpoint(path: str,
                   f'of shape {loaded_state_dict[param_name].shape} does not match corresponding '
                   f'model parameter of shape {model_state_dict[param_name].shape}.')
         else:
-            debug(f'Loading pretrained parameter "{param_name}".')
+            if not quiet:
+                debug(f'Loading pretrained parameter "{param_name}".')
             pretrained_state_dict[param_name] = loaded_state_dict[param_name]
 
     # Load pretrained weights
