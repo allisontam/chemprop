@@ -19,7 +19,7 @@ from .train import train
 from chemprop.data import StandardScaler
 from chemprop.data.utils import flip_data, get_class_sizes, get_data, get_task_names, split_data, split_loocv, task_iterator
 from chemprop.models import build_model
-from chemprop.nn_utils import param_count
+from chemprop.nn_utils import compute_gnorm, compute_pnorm, param_count
 from chemprop.utils import build_optimizer, build_lr_scheduler, get_loss_func, get_metric_func, load_checkpoint,\
     makedirs, save_checkpoint
 
@@ -181,24 +181,6 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
 
         # Learning rate schedulers
         scheduler = build_lr_scheduler(optimizer, args)
-        # lrs = scheduler.get_lr()
-        # lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
-            # for i, lr in enumerate(lrs):
-                # writer.add_scalar(f'learning_rate_{i}', lr, n_iter)
-
-        # Log and/or add to tensorboard
-        # if (n_iter // args.batch_size) % args.log_frequency == 0:
-            # pnorm = compute_pnorm(model)
-            # gnorm = compute_gnorm(model)
-            # loss_avg = loss_sum / iter_count
-            # loss_sum, iter_count = 0, 0
-
-            # debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}')
-
-            # if writer is not None:
-                # writer.add_scalar('train_loss', loss_avg, n_iter)
-                # writer.add_scalar('param_norm', pnorm, n_iter)
-                # writer.add_scalar('gradient_norm', gnorm, n_iter)
 
         # Run training
         # testparam = 'drug_encoder.encoder.W_i.weight'
@@ -222,21 +204,46 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
                     optimizer=inner_optim,
                     n_grad_step=5,
                 )
+                # inner_model = inner_model.to('cpu')
 
                 for name, param in inner_model.named_parameters():  # accumulate grad with \sim\phi
                     if not param.requires_grad:
                         continue
                     gradient = model_param[name].data - param.data
                     if model_param[name].grad is None:
-                        model_param[name].grad = torch.autograd.Variable(torch.zeros(gradient.size()))
+                        # print(type(model_param[name].grad))
+                        print('HAD TO BE DONE')
+                        model = model.to('cpu')
+                        model_param[name]._grad = torch.autograd.Variable(torch.zeros(gradient.size()))
+                        model = model.cuda()
                     model_param[name].grad.data.add_(gradient/args.batch_size)
 
                 if (i+1)%args.batch_size == 0:  # actually apply gradient
                     optimizer.step()
+
+                    # Log and/or add to tensorboard
+                    # if (n_iter // args.batch_size) % args.log_frequency == 0:
+                    if i == 15:
+                        lrs = scheduler.get_lr()
+                        lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
+                        for i, lr in enumerate(lrs):
+                            writer.add_scalar(f'learning_rate_{i}', lr, n_iter)
+
+                        pnorm = compute_pnorm(model)
+                        gnorm = compute_gnorm(model)
+                        # loss_avg = loss_sum / iter_count
+                        # loss_sum, iter_count = 0, 0
+
+                        # debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}')
+                        debug(f'PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}')
+
+                        # writer.add_scalar('train_loss', loss_avg, n_iter)
+                        writer.add_scalar('param_norm', pnorm, n_iter)
+                        writer.add_scalar('gradient_norm', gnorm, n_iter)
                     optimizer.zero_grad()
 
-            if isinstance(scheduler, ExponentialLR):
-                scheduler.step()
+            # if isinstance(scheduler, ExponentialLR):
+            scheduler.step()
             val_scores, val_loss = evaluate(
                 model=model,
                 train_data=train_tasks,
@@ -310,7 +317,6 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
             dataset_type=args.dataset_type,
             logger=logger
         )
-        """
 
         if len(test_preds) != 0:
             sum_test_preds += np.array(test_preds)
@@ -337,6 +343,8 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         dataset_type=args.dataset_type,
         logger=logger
     )
+    """
+    ensemble_scores=test_scores
 
     # Average ensemble score
     avg_ensemble_test_score = np.nanmean(ensemble_scores)

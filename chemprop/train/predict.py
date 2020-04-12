@@ -29,7 +29,7 @@ def predict(model: nn.Module,
 
     num_iters, iter_step = len(data), batch_size
 
-    for i in trange(0, num_iters, iter_step):
+    for i in range(0, num_iters, iter_step):
         # Prepare batch
         mol_batch = MolPairDataset(data[i:i + batch_size])
         smiles_batch, features_batch = mol_batch.smiles(), mol_batch.features()
@@ -85,5 +85,5 @@ def save_predictions(save_dir: str,
 
             preds = predSplits[k]
             for i in range(len(smiles)):
-                row = [smiles[i][0], smiles[i][1], split] + targets[i] + preds[i]
+                row = [smiles[i][0], smiles[i][1], split] + [str(x) for x in targets[i]] + [str(x) for x in preds[i]]
                 writer.writerow(row)
