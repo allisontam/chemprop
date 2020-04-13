@@ -7,12 +7,14 @@ import torch.nn as nn
 from tqdm import trange
 
 from chemprop.data import MolPairDataset, StandardScaler
+from chemprop.data.utils import flip_data
 
 
 def predict(model: nn.Module,
             data: MolPairDataset,
             batch_size: int,
-            scaler: StandardScaler = None) -> List[List[float]]:
+            scaler: StandardScaler = None,
+            avg_reverse: bool = True) -> List[List[float]]:
     """
     Makes predictions on a dataset using an ensemble of models.
 
@@ -31,20 +33,31 @@ def predict(model: nn.Module,
 
     for i in trange(0, num_iters, iter_step):
         # Prepare batch
-        mol_batch = MolPairDataset(data[i:i + batch_size])
-        smiles_batch, features_batch = mol_batch.smiles(), mol_batch.features()
+        batches = [MolPairDataset(data[i:i + batch_size])]
+        ret = []
+        if avg_reverse:
+            batches.append( flip_data(batches[-1]) )
 
-        # Run model
-        batch = smiles_batch
+        for mol_batch in batches:
+            smiles_batch, features_batch = mol_batch.smiles(), mol_batch.features()
 
-        with torch.no_grad():
-            batch_preds = model(batch, features_batch)
+            # Run model
+            batch = smiles_batch
 
-        batch_preds = batch_preds.data.cpu().numpy()
+            with torch.no_grad():
+                batch_preds = model(batch, features_batch)
 
-        # Inverse scale if regression
-        if scaler is not None:
-            batch_preds = scaler.inverse_transform(batch_preds)
+            batch_preds = batch_preds.data.cpu().numpy()
+
+            # Inverse scale if regression
+            if scaler is not None:
+                batch_preds = scaler.inverse_transform(batch_preds)
+            ret.append(batch_preds)
+
+        if avg_reverse:
+            batch_preds = (ret[0] + ret[1])/2
+        else:
+            batch_preds = ret[0]
 
         # Collect vectors
         batch_preds = batch_preds.tolist()

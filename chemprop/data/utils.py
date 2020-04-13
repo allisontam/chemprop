@@ -379,7 +379,7 @@ def _assure_val_split(train, val, train_size, seed):
     return train, val
 
 
-def flip_data(data: MolPairDataset) -> MolPairDataset:
+def flip_data(data: MolPairDataset, keep_original=False) -> MolPairDataset:
     """
     Flips drug <--> cmpd in dataset.
     """
@@ -398,7 +398,7 @@ def flip_data(data: MolPairDataset) -> MolPairDataset:
             use_compound_names=False
         ) for _, entry in tqdm(enumerate(data.data), total=len(data.data))
     ]
-    return MolPairDataset(data.data + flipped)
+    return MolPairDataset(data.data + flipped) if keep_original else MolPairDataset(flipped)
 
 
 def get_class_sizes(data: MolPairDataset) -> List[List[float]]:

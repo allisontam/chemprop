@@ -111,8 +111,7 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         with open(os.path.join(args.save_dir, 'split_indices.pckl'), 'wb') as f:
             pickle.dump(all_split_indices, f)
 
-    if args.symmetric:
-        train_data = flip_data(train_data)
+    train_data = flip_data(train_data, keep_original=True)
 
     if args.features_scaling:
         drug_scaler, cmpd_scaler = train_data.normalize_features(replace_nan_token=0)
@@ -234,17 +233,21 @@ def run_training(args: Namespace, logger: Logger = None) -> List[float]:
         info(f'Model {model_idx} best validation {args.metric} = {best_score:.6f} on epoch {best_epoch}')
         model = load_checkpoint(os.path.join(save_dir, 'model.pt'), cuda=args.cuda, logger=logger)
 
+        if args.save_preds:
+            flip_test = flip_data(test_data, keep_original=True)
+            flip_val = flip_data(val_data, keep_original=True)
+            test_preds = predict(model=model, data=flip_test, batch_size=args.batch_size, scaler=scaler, avg_reverse=False)
+            val_preds = predict(model=model, data=flip_val, batch_size=args.batch_size, scaler=scaler, avg_reverse=False)
+            train_preds = predict(model=model, data=train_data, batch_size=args.batch_size, scaler=scaler, avg_reverse=False)
+            save_predictions(save_dir, train_data, flip_val, flip_test, \
+                    train_preds, val_preds, test_preds, args.task_names, scaler)
+
         test_preds = predict(
             model=model,
             data=test_data,
             batch_size=args.batch_size,
             scaler=scaler
         )
-        if args.save_preds:
-            val_preds = predict(model=model, data=val_data, batch_size=args.batch_size, scaler=scaler)
-            train_preds = predict(model=model, data=train_data, batch_size=args.batch_size, scaler=scaler)
-            save_predictions(save_dir, train_data, val_data, test_data, \
-                    train_preds, val_preds, test_preds, args.task_names, scaler)
 
         test_scores = evaluate_predictions(
             preds=test_preds,
