@@ -12,7 +12,7 @@ from chemprop.nn_utils import index_select_ND, get_activation_function
 class MPNEncoder(nn.Module):
     """A message passing neural network for encoding a molecule."""
 
-    def __init__(self, args: Namespace, atom_fdim: int, bond_fdim: int, override_feats_only=False):
+    def __init__(self, args: Namespace, atom_fdim: int, bond_fdim: int, override_feats_only=False, attn_readout=False):
         """Initializes the MPNEncoder.
 
         :param args: Arguments.
@@ -32,6 +32,7 @@ class MPNEncoder(nn.Module):
         self.features_only = args.features_only or override_feats_only
         self.use_input_features = args.use_input_features
         self.args = args
+        self.attn_readout = attn_readout
 
         if self.features_only:
             return
@@ -56,14 +57,16 @@ class MPNEncoder(nn.Module):
 
         # Shared weight matrix across depths (default)
         self.W_h = nn.Linear(w_h_input_size, self.hidden_size, bias=self.bias)
-
         self.W_o = nn.Linear(self.atom_fdim + self.hidden_size, self.hidden_size)
+
+        if self.attn_readout:  # For attn
+            self.W_q = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+            self.softmax = nn.Softmax(dim=0)
 
     def forward(self,
                 mol_graph: BatchMolGraph,
                 features_batch: List[np.ndarray] = None,
-                gamma: torch.FloatTensor = None,
-                beta: torch.FloatTensor = None) -> torch.FloatTensor:
+                readout_embed: torch.FloatTensor = None) -> torch.FloatTensor:
         """
         Encodes a batch of molecular graphs.
 
@@ -87,9 +90,11 @@ class MPNEncoder(nn.Module):
 
         if self.args.cuda or next(self.parameters()).is_cuda:
             f_atoms, f_bonds, a2b, b2a, b2revb = f_atoms.cuda(), f_bonds.cuda(), a2b.cuda(), b2a.cuda(), b2revb.cuda()
-
             if self.atom_messages:
                 a2a = a2a.cuda()
+
+        if self.attn_readout:
+            readout_embed = self.W_q(readout_embed)
 
         # Input
         if self.atom_messages:
@@ -125,7 +130,6 @@ class MPNEncoder(nn.Module):
         a_message = nei_a_message.sum(dim=1)  # num_atoms x hidden
         a_input = torch.cat([f_atoms, a_message], dim=1)  # num_atoms x (atom_fdim + hidden)
         atom_hiddens = self.act_func(self.W_o(a_input))  # num_atoms x hidden
-        atom_hiddens = self.dropout_layer(atom_hiddens)  # num_atoms x hidden
 
         # Readout
         mol_vecs = []
@@ -134,9 +138,15 @@ class MPNEncoder(nn.Module):
                 mol_vecs.append(self.cached_zero_vector)
             else:
                 cur_hiddens = atom_hiddens.narrow(0, a_start, a_size)
-                mol_vec = cur_hiddens  # (num_atoms, hidden_size)
+                mol_vec = self.dropout_layer(cur_hiddens)  # num_atoms x hidden
 
-                mol_vec = mol_vec.sum(dim=0) / a_size
+                if self.attn_readout:
+                    coefs = cur_hiddens.matmul(readout_embed.narrow(0, i, 1).T)  # num_atoms x 1
+                    coefs = self.softmax(coefs)
+                    mol_vec = mol_vec.T.matmul(coefs).squeeze(-1)
+                else:
+                    mol_vec = mol_vec.sum(dim=0) / a_size
+
                 mol_vecs.append(mol_vec)
 
         mol_vecs = torch.stack(mol_vecs, dim=0)  # (num_molecules, hidden_size)
@@ -158,7 +168,8 @@ class MPN(nn.Module):
                  atom_fdim: int = None,
                  bond_fdim: int = None,
                  graph_input: bool = False,
-                 override_feats_only: bool = False):
+                 override_feats_only: bool = False,
+                 attn_readout: bool = False):
         """
         Initializes the MPN.
 
@@ -172,13 +183,12 @@ class MPN(nn.Module):
         self.atom_fdim = atom_fdim or get_atom_fdim(args)
         self.bond_fdim = bond_fdim or get_bond_fdim(args) + (not args.atom_messages) * self.atom_fdim
         self.graph_input = graph_input
-        self.encoder = MPNEncoder(self.args, self.atom_fdim, self.bond_fdim, override_feats_only)
+        self.encoder = MPNEncoder(self.args, self.atom_fdim, self.bond_fdim, override_feats_only, attn_readout)
 
     def forward(self,
                 batch: Union[List[str], BatchMolGraph],
                 features_batch: List[np.ndarray] = None,
-                gamma: torch.FloatTensor = None,
-                beta: torch.FloatTensor = None) -> torch.FloatTensor:
+                readout_embed: torch.FloatTensor = None) -> torch.FloatTensor:
         """
         Encodes a batch of molecular SMILES strings.
 
@@ -189,6 +199,6 @@ class MPN(nn.Module):
         if not self.graph_input:  # if features only, batch won't even be used
             batch = mol2graph(batch, self.args)
 
-        output = self.encoder.forward(batch, features_batch, gamma, beta)
+        output = self.encoder.forward(batch, features_batch, readout_embed)
 
         return output

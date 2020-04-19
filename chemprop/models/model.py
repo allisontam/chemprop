@@ -31,8 +31,8 @@ class MoleculeModel(nn.Module):
 
         :param args: Arguments.
         """
-        self.drug_encoder = MPN(args) if not args.cmpd_only else None
-        self.cmpd_encoder = MPN(args) if not args.drug_only else None
+        self.drug_encoder = MPN(args, attn_readout=False)
+        self.cmpd_encoder = MPN(args, attn_readout=True)
 
     def create_ffn(self, args: Namespace):
         """
@@ -55,8 +55,8 @@ class MoleculeModel(nn.Module):
         dropout = nn.Dropout(args.dropout)
         activation = get_activation_function(args.activation)
 
-        self.gamma = nn.Linear(args.hidden_size, args.hidden_size)
-        self.beta = nn.Linear(args.hidden_size, args.hidden_size)
+        # self.gamma = nn.Linear(args.hidden_size, args.hidden_size)
+        # self.beta = nn.Linear(args.hidden_size, args.hidden_size)
         self.ffn = nn.ModuleList()
 
         # Create FFN layers
@@ -101,10 +101,10 @@ class MoleculeModel(nn.Module):
         learned_drug = self.drug_encoder(batch=[x[0] for x in smiles],
                 features_batch=[x[0] for x in feats])
         learned_cmpd = self.cmpd_encoder(batch=[x[1] for x in smiles],
-                features_batch=[x[1] for x in feats])
-            # gamma=<TODO>, beta=<TODO>) LATER: perhaps figure out a way to incorporate into gcn
+                features_batch=[x[1] for x in feats],
+                readout_embed=learned_drug)
 
-        gamma, beta = self.gamma(learned_drug), self.beta(learned_drug)
+        # gamma, beta = self.gamma(learned_drug), self.beta(learned_drug)
 
         # Incorporate pair features when available
         if feats[0][2] is not None:
@@ -116,8 +116,9 @@ class MoleculeModel(nn.Module):
 
         output = learned_cmpd
         for module in self.ffn:
-            newInput = gamma * output + beta
-            output = module(newInput)
+            # newInput = gamma * output + beta
+            # output = module(newInput)
+            output = module(output)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if not self.training:
