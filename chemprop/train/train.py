@@ -42,7 +42,7 @@ def train(model: nn.Module,
 
     data.shuffle()  # Very important this is done before conversion to maintain randomness in contrastive dataset.
 
-    loss_sum, iter_count = 0, 0
+    loss_sum, entropy_sum, iter_count = 0, 0, 0
 
     if args.loss_func == 'contrastive':
         data = convert2contrast(data)
@@ -76,7 +76,7 @@ def train(model: nn.Module,
 
         # Run model
         model.zero_grad()
-        preds = model(batch, features_batch)
+        preds, entropy = model(batch, features_batch)
 
         if args.dataset_type == 'multiclass':
             targets = targets.long()
@@ -86,6 +86,7 @@ def train(model: nn.Module,
         loss = loss.sum() / mask.sum()
 
         loss_sum += loss.item()
+        entropy_sum += entropy.item()
         iter_count += 1
 
         loss.backward()
@@ -104,12 +105,14 @@ def train(model: nn.Module,
             pnorm = compute_pnorm(model)
             gnorm = compute_gnorm(model)
             loss_avg = loss_sum / iter_count
-            loss_sum, iter_count = 0, 0
+            entropy_avg = entropy_sum / iter_count
+            loss_sum, entropy_sum, iter_count = 0, 0, 0
 
             lrs_str = ', '.join(f'lr_{i} = {lr:.4e}' for i, lr in enumerate(lrs))
-            debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}')
+            debug(f'Loss = {loss_avg:.4e}, PNorm = {pnorm:.4f}, GNorm = {gnorm:.4f}, {lrs_str}, Entropy = {entropy_avg:.4f}')
 
             if writer is not None:
+                writer.add_scalar('readout entropy', entropy_avg, n_iter)
                 writer.add_scalar('train_loss', loss_avg, n_iter)
                 writer.add_scalar('param_norm', pnorm, n_iter)
                 writer.add_scalar('gradient_norm', gnorm, n_iter)

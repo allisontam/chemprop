@@ -132,7 +132,7 @@ class MPNEncoder(nn.Module):
         atom_hiddens = self.act_func(self.W_o(a_input))  # num_atoms x hidden
 
         # Readout
-        mol_vecs = []
+        mol_vecs, entropy = [], 0
         for i, (a_start, a_size) in enumerate(a_scope):
             if a_size == 0:
                 mol_vecs.append(self.cached_zero_vector)
@@ -144,6 +144,10 @@ class MPNEncoder(nn.Module):
                     coefs = cur_hiddens.matmul(readout_embed.narrow(0, i, 1).T)  # num_atoms x 1
                     coefs = self.softmax(coefs)
                     mol_vec = mol_vec.T.matmul(coefs).squeeze(-1)
+
+                    log = torch.log2(coefs)  # For logging purposes
+                    log[log == -float('inf')] = 0
+                    entropy += -coefs.T.matmul(log)/len(a_scope)  # Entropy = -\sum p\log p
                 else:
                     mol_vec = mol_vec.sum(dim=0) / a_size
 
@@ -157,7 +161,7 @@ class MPNEncoder(nn.Module):
                 features_batch = features_batch.view([1,features_batch.shape[0]])
             mol_vecs = torch.cat([mol_vecs, features_batch], dim=1)  # (num_molecules, hidden_size)
 
-        return mol_vecs  # num_molecules x hidden
+        return mol_vecs, entropy  # num_molecules x hidden
 
 
 class MPN(nn.Module):

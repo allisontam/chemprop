@@ -98,9 +98,9 @@ class MoleculeModel(nn.Module):
         """
         smiles, feats = input  # TODO: in future, move drug/cmpd feats out of MPN
 
-        learned_drug = self.drug_encoder(batch=[x[0] for x in smiles],
+        learned_drug, _ = self.drug_encoder(batch=[x[0] for x in smiles],
                 features_batch=[x[0] for x in feats])
-        learned_cmpd = self.cmpd_encoder(batch=[x[1] for x in smiles],
+        learned_cmpd, entropy = self.cmpd_encoder(batch=[x[1] for x in smiles],
                 features_batch=[x[1] for x in feats],
                 readout_embed=learned_drug)
 
@@ -124,7 +124,7 @@ class MoleculeModel(nn.Module):
         if not self.training:
             output = self.activation(output)
 
-        return output
+        return output, entropy
 
 
 def build_model(args: Namespace) -> nn.Module:
