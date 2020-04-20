@@ -19,13 +19,14 @@ from chemprop.utils import create_logger, makedirs
 
 SPACE = {
     'hidden_size': hp.quniform('hidden_size', low=50, high=400, q=50),
+    'attn_heads': hp.qloguniform('attn_heads', low=0, high=3, q=0.7),
     'depth': hp.quniform('depth', low=2, high=6, q=1),
     'dropout': hp.quniform('dropout', low=0.0, high=0.4, q=0.05),
     'ffn_num_layers': hp.quniform('ffn_num_layers', low=1, high=3, q=1),
     # 'class_weights': hp.quniform('class_weights', low=1, high=20, q=1),
     'sample_ratio': hp.quniform('sample_ratio', low=10, high=100, q=20)
 }
-INT_KEYS = ['hidden_size', 'depth', 'ffn_num_layers', 'sample_ratio']
+INT_KEYS = ['hidden_size', 'attn_heads', 'depth', 'ffn_num_layers', 'sample_ratio']
 
 
 def grid_search(args: Namespace):
@@ -41,8 +42,8 @@ def grid_search(args: Namespace):
         # Convert hyperparams from float to int when necessary
         for key in INT_KEYS:
             hyperparams[key] = int(hyperparams[key])
-            if key == 'hidden_size':
-                hyperparams['ffn_hidden_size'] = int(hyperparams[key])
+            # if key == 'hidden_size':
+                # hyperparams['ffn_hidden_size'] = int(hyperparams[key])
 
         # Update args with hyperparams
         hyper_args = deepcopy(args)

@@ -31,7 +31,9 @@ class MPNEncoder(nn.Module):
         self.atom_messages = args.atom_messages
         self.features_only = args.features_only or override_feats_only
         self.use_input_features = args.use_input_features
+        self.attn_heads = args.attn_heads
         self.args = args
+
         self.attn_readout = attn_readout
 
         if self.features_only:
@@ -60,7 +62,7 @@ class MPNEncoder(nn.Module):
         self.W_o = nn.Linear(self.atom_fdim + self.hidden_size, self.hidden_size)
 
         if self.attn_readout:  # For attn
-            self.W_q = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+            self.W_q = nn.Linear(self.hidden_size, self.attn_heads*self.hidden_size, bias=False)
             self.softmax = nn.Softmax(dim=0)
 
     def forward(self,
@@ -95,6 +97,7 @@ class MPNEncoder(nn.Module):
 
         if self.attn_readout:
             readout_embed = self.W_q(readout_embed)
+            readout_embed = readout_embed.view(-1, self.hidden_size, self.attn_heads)
 
         # Input
         if self.atom_messages:
@@ -141,13 +144,15 @@ class MPNEncoder(nn.Module):
                 mol_vec = self.dropout_layer(cur_hiddens)  # num_atoms x hidden
 
                 if self.attn_readout:
-                    coefs = cur_hiddens.matmul(readout_embed.narrow(0, i, 1).T)  # num_atoms x 1
+                    cur_readout = readout_embed.narrow(0, i, 1).squeeze(0)
+                    coefs = cur_hiddens.matmul(cur_readout)  # num_atoms x attn_heads
                     coefs = self.softmax(coefs)
-                    mol_vec = mol_vec.T.matmul(coefs).squeeze(-1)
+                    mol_vec = mol_vec.T.matmul(coefs)  # hidden x attn_heads
+                    mol_vec = mol_vec.view(-1, 1).squeeze(-1)
 
                     log = torch.log2(coefs)  # For logging purposes
                     log[log == -float('inf')] = 0
-                    entropy += -coefs.T.matmul(log)/len(a_scope)  # Entropy = -\sum p\log p
+                    entropy += -(coefs*log).sum()/self.attn_heads/len(a_scope)  # Entropy = -\sum p\log p
                 else:
                     mol_vec = mol_vec.sum(dim=0) / a_size
 
