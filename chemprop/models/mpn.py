@@ -147,8 +147,7 @@ class MPNEncoder(nn.Module):
                     cur_readout = readout_embed.narrow(0, i, 1).squeeze(0)
                     coefs = cur_hiddens.matmul(cur_readout)  # num_atoms x attn_heads
                     coefs = self.softmax(coefs)
-                    mol_vec = mol_vec.T.matmul(coefs)  # hidden x attn_heads
-                    mol_vec = mol_vec.view(-1, 1).squeeze(-1)
+                    mol_vec = coefs.T.matmul(mol_vec)  # attn_heads x hidden
 
                     log = torch.log2(coefs)  # For logging purposes
                     log[log == -float('inf')] = 0
@@ -158,7 +157,7 @@ class MPNEncoder(nn.Module):
 
                 mol_vecs.append(mol_vec)
 
-        mol_vecs = torch.stack(mol_vecs, dim=0)  # (num_molecules, hidden_size)
+        mol_vecs = torch.stack(mol_vecs, dim=0)  # (num_molecules, attn_heads, hidden_size)
 
         if self.use_input_features and features_batch[0] is not None:
             features_batch = features_batch.to(mol_vecs)

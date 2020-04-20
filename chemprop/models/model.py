@@ -42,28 +42,29 @@ class MoleculeModel(nn.Module):
         """
         self.multiclass = args.dataset_type == 'multiclass'
         self.ops = args.ops
+        self.hidden_size = args.hidden_size
 
         if self.multiclass:
             self.num_classes = args.multiclass_num_classes
         if args.features_only:
             first_linear_dim = args.features_size
         else:
-            first_linear_dim = args.hidden_size*args.attn_heads
+            first_linear_dim = args.hidden_size
             if args.use_input_features:
                 first_linear_dim += args.features_dim
 
         dropout = nn.Dropout(args.dropout)
         activation = get_activation_function(args.activation)
 
-        # self.gamma = nn.Linear(args.hidden_size, args.hidden_size)
-        # self.beta = nn.Linear(args.hidden_size, args.hidden_size)
+        self.gamma = nn.Linear(args.hidden_size, args.attn_heads)
+        self.beta = nn.Linear(args.hidden_size, args.attn_heads)
         self.ffn = nn.ModuleList()
 
         # Create FFN layers
         if args.ffn_num_layers == 1:
             ffn = [
                 dropout,
-                nn.Linear(first_linear_dim, args.output_size)
+                nn.Linear(args.attn_heads*first_linear_dim, args.output_size)
             ]
             self.ffn.append(nn.Sequential(*ffn))
         else:
@@ -82,7 +83,7 @@ class MoleculeModel(nn.Module):
             ffn = [
                 activation,
                 dropout,
-                nn.Linear(args.ffn_hidden_size, args.output_size),
+                nn.Linear(args.attn_heads*args.ffn_hidden_size, args.output_size),
             ]
             self.ffn.append(nn.Sequential(*ffn))
 
@@ -104,7 +105,9 @@ class MoleculeModel(nn.Module):
                 features_batch=[x[1] for x in feats],
                 readout_embed=learned_drug)
 
-        # gamma, beta = self.gamma(learned_drug), self.beta(learned_drug)
+        gamma, beta = self.gamma(learned_drug), self.beta(learned_drug)
+        gamma = gamma.unsqueeze(-1).expand(-1, -1, self.hidden_size)
+        beta = beta.unsqueeze(-1).expand(-1, -1, self.hidden_size)
 
         # Incorporate pair features when available
         if feats[0][2] is not None:
@@ -115,10 +118,11 @@ class MoleculeModel(nn.Module):
             raise ValueError("Won't work bc gamma doesn't have features")  # TODO
 
         output = learned_cmpd
-        for module in self.ffn:
-            # newInput = gamma * output + beta
-            # output = module(newInput)
-            output = module(output)
+        for i, module in enumerate(self.ffn):
+            newInput = gamma * output + beta
+            if i == len(self.ffn)-1:
+                newInput = newInput.view(newInput.shape[0], -1)
+            output = module(newInput)
 
         # Don't apply sigmoid during training b/c using BCEWithLogitsLoss
         if not self.training:
