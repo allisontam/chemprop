@@ -43,6 +43,7 @@ class MoleculeModel(nn.Module):
         self.multiclass = args.dataset_type == 'multiclass'
         self.ops = args.ops
         self.hidden_size = args.hidden_size
+        self.ffn_hidden_size = args.ffn_hidden_size
 
         if self.multiclass:
             self.num_classes = args.multiclass_num_classes
@@ -105,9 +106,7 @@ class MoleculeModel(nn.Module):
                 features_batch=[x[1] for x in feats],
                 readout_embed=learned_drug)
 
-        gamma, beta = self.gamma(learned_drug), self.beta(learned_drug)
-        gamma = gamma.unsqueeze(-1).expand(-1, -1, self.hidden_size)
-        beta = beta.unsqueeze(-1).expand(-1, -1, self.hidden_size)
+        gammaConst, betaConst = self.gamma(learned_drug), self.beta(learned_drug)
 
         # Incorporate pair features when available
         if feats[0][2] is not None:
@@ -119,6 +118,10 @@ class MoleculeModel(nn.Module):
 
         output = learned_cmpd
         for i, module in enumerate(self.ffn):
+            hidden_size = self.hidden_size if i == 0 else self.ffn_hidden_size
+            gamma = gammaConst.unsqueeze(-1).expand(-1, -1, hidden_size)
+            beta = betaConst.unsqueeze(-1).expand(-1, -1, hidden_size)
+
             newInput = gamma * output + beta
             if i == len(self.ffn)-1:
                 newInput = newInput.view(newInput.shape[0], -1)
