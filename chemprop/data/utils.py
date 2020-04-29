@@ -84,6 +84,15 @@ def filter_invalid_smiles(data: MolPairDataset) -> MolPairDataset:
                             if not invalid_smile(datapoint)])
 
 
+def features_helper(smile, features_data, features):
+    """
+    Returns proper representation for features by combining cached and input features.
+    """
+    if features_data is None:
+        return features if features else None
+    return np.concatenate((features, features_data[smile])) if features else features_data[smile]
+
+
 def get_data(path: str,
              skip_invalid_smiles: bool = True,
              args: Namespace = None,
@@ -136,7 +145,7 @@ def get_data(path: str,
             line = line.strip().split(',')
             drug_smiles = line[0]
             cmpd_smiles = line[1]
-            targets, context = [], []
+            targets, context, feats1, feats2 = [], [], [], []
 
             if drug_smiles in skip_smiles or cmpd_smiles in skip_smiles:
                 continue
@@ -144,9 +153,13 @@ def get_data(path: str,
             for i in range(2, len(line)):
                 if args.data_format is None or args.data_format[i] == 'P':
                     targets.append( float(line[i]) if line[i] != '' else None )
+                elif args.data_format[i] == '1':
+                    feats1.append( float(line[i]) if line[i] != '' else np.nan )
+                elif args.data_format[i] == '2':
+                    feats2.append( float(line[i]) if line[i] != '' else np.nan )
                 else:
-                    context.append( float(line[i]) if line[i] != '' else None )
-            lines.append( (drug_smiles, cmpd_smiles, targets, context) )
+                    context.append( float(line[i]) if line[i] != '' else np.nan )
+            lines.append( (drug_smiles, cmpd_smiles, targets, feats1, feats2, context) )
 
             if len(lines) >= max_data_size:
                 break
@@ -157,10 +170,9 @@ def get_data(path: str,
                 cmpd_smiles=line[1],
                 targets=line[2],
                 args=args,
-                drug_feats=features_data[line[0]] if features_data is not None else None,
-                cmpd_feats=features_data[line[1]] if features_data is not None else None,
-                context=np.array(line[3]) if len(line[3]) > 0 else None,
-                use_compound_names=use_compound_names
+                drug_feats=features_helper(line[0], features_data, line[3]),
+                cmpd_feats=features_helper(line[1], features_data, line[4]),
+                context=np.array(line[5]) if len(line[5]) > 0 else None
             ) for i, line in tqdm(enumerate(lines), total=len(lines))
         ])
 
@@ -383,19 +395,16 @@ def flip_data(data: MolPairDataset) -> MolPairDataset:
     """
     Flips drug <--> cmpd in dataset.
     """
-    # TODO: Fix error with context.
-    flip_feats = data.args.features_path is not None
-    flip_context = (data.args.data_format is not None) and ('F' in data.args.data_format)
     flipped = [
         MolPairDatapoint(
             drug_smiles=entry.cmpd_smiles,
             cmpd_smiles=entry.drug_smiles,
             targets=entry.targets,
             args=data.args,
-            drug_feats=entry.cmpd_feats if flip_feats else None,
-            cmpd_feats=entry.drug_feats if flip_feats else None,
-            context=np.array(list(reversed(list(entry.context)))) if flip_context else None,
-            use_compound_names=False
+            drug_feats=entry.cmpd_feats,
+            cmpd_feats=entry.drug_feats,
+            context=entry.context,
+            no_generation=True
         ) for _, entry in tqdm(enumerate(data.data), total=len(data.data))
     ]
     return MolPairDataset(data.data + flipped)

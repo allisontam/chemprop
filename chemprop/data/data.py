@@ -22,7 +22,7 @@ class MolPairDatapoint:
                  drug_feats: np.ndarray = None,
                  cmpd_feats: np.ndarray = None,
                  context: np.ndarray = None,
-                 use_compound_names: bool = False):
+                 no_generation: bool = False):
         """
         Initializes a MolPairDatapoint, which contains a molecule pair.
 
@@ -31,6 +31,7 @@ class MolPairDatapoint:
         :param drug_feats: A numpy array containing additional features for molecule 1 (ex. Morgan fingerprint).
         :param cmpd_feats: A numpy array containing additional features for molecule 2 (ex. Morgan fingerprint).
         :param context: A numpy array containing additional features defining context (ex. cell line).
+        :param no_generation: Overrides args. If True, generation doesn't happen.
 
         NOT SUPPORTED
         :param use_compound_names: Whether the data CSV includes the compound name on each line.
@@ -41,15 +42,6 @@ class MolPairDatapoint:
         else:
             self.features_generator = self.args = None
 
-        if (drug_feats is not None or cmpd_feats is not None) and self.features_generator is not None:
-            raise ValueError('Currently cannot provide both loaded features and a features generator.')
-
-        self.drug_feats = drug_feats
-        self.cmpd_feats = cmpd_feats
-        self.context = context
-
-        if use_compound_names:
-            raise NotImplementedError
         self.compound_name = None
 
         self.drug_smiles = drug_smiles  # str
@@ -60,20 +52,30 @@ class MolPairDatapoint:
         # Create targets
         self.targets = targets
 
+        # Set features
+        self.drug_feats = drug_feats
+        self.cmpd_feats = cmpd_feats
+        self.context = context
         # Generate additional features if given a generator
-        if self.features_generator is not None:
-            self.drug_feats = []
-            self.cmpd_feats = []
+        if not no_generation and self.features_generator is not None:
+            gen_drug_feats = []
+            gen_cmpd_feats = []
 
             for fg in self.features_generator:
                 features_generator = get_features_generator(fg)
                 if self.drug_mol is not None and self.drug_mol.GetNumHeavyAtoms() > 0:
-                    self.drug_feats.extend(features_generator(self.drug_mol))
+                    gen_drug_feats.extend(features_generator(self.drug_mol))
                 if self.cmpd_mol is not None and self.cmpd_mol.GetNumHeavyAtoms() > 0:
-                    self.cmpd_feats.extend(features_generator(self.cmpd_mol))
+                    gen_cmpd_feats.extend(features_generator(self.cmpd_mol))
 
-            self.drug_feats = np.array(self.drug_feats)
-            self.cmpd_feats = np.array(self.cmpd_feats)
+            if self.drug_feats:  # Concatenate with given input feats if already exist
+                self.drug_feats = np.concatenate((self.drug_feats, gen_drug_feats))
+            else:
+                self.drug_feats = np.array(gen_drug_feats)
+            if self.cmpd_feats:
+                self.cmpd_feats = np.concatenate((self.cmpd_feats, gen_cmpd_feats))
+            else:
+                self.cmpd_feats = np.array(gen_cmpd_feats)
 
         # Fix nans in features
         if self.drug_feats is not None:

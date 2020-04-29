@@ -20,7 +20,7 @@ def add_predict_args(parser: ArgumentParser):
                         choices=list(range(torch.cuda.device_count())),
                         help='Which GPU to use')
     parser.add_argument('--data_format', type=str, default=None,
-                        help='SSPFFFF example for 2 smiles, prop, followed by feats')
+                        help='SSPFF12 example for 2 smiles, prop, followed by feats')
     parser.add_argument('--test_path', type=str,
                         help='Path to CSV file containing testing data for which predictions will be made')
     parser.add_argument('--use_compound_names', action='store_true', default=False,
@@ -330,7 +330,7 @@ def modify_train_args(args: Namespace):
     args.use_input_features = args.features_generator or args.features_path
     if args.data_format:
         assert args.data_format[:2] == 'SS'
-        args.use_input_features = args.use_input_features or 'F' in args.data_format
+        args.use_input_features = args.use_input_features or 'F' in args.data_format or '1' in args.data_format or '2' in args.data_format
 
     if args.features_generator is not None and 'rdkit_2d_normalized' in args.features_generator:
         assert not args.features_scaling
